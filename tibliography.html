@@ -3,118 +3,749 @@
 <head>
 <title>JabRef references</title>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<script type="text/javascript">
+<!--
+// QuickSearch script for JabRef HTML export 
+// Version: 3.0
+//
+// Copyright (c) 2006-2011, Mark Schenk
+//
+// This software is distributed under a Creative Commons Attribution 3.0 License
+// http://creativecommons.org/licenses/by/3.0/
+//
+// Features:
+// - intuitive find-as-you-type searching
+//    ~ case insensitive
+//    ~ ignore diacritics (optional)
+//
+// - search with/without Regular Expressions
+// - match BibTeX key
+//
+
+// Search settings
+var searchAbstract = true;	// search in abstract
+var searchReview = true;	// search in review
+
+var noSquiggles = true; 	// ignore diacritics when searching
+var searchRegExp = false; 	// enable RegExp searches
+
+
+if (window.addEventListener) {
+	window.addEventListener("load",initSearch,false); }
+else if (window.attachEvent) {
+	window.attachEvent("onload", initSearch); }
+
+function initSearch() {
+	// check for quick search table and searchfield
+	if (!document.getElementById('qs_table')||!document.getElementById('quicksearch')) { return; }
+
+	// load all the rows and sort into arrays
+	loadTableData();
+	
+	//find the query field
+	qsfield = document.getElementById('qs_field');
+
+	// previous search term; used for speed optimisation
+	prevSearch = '';
+
+	//find statistics location
+	stats = document.getElementById('stat');
+	setStatistics(-1);
+	
+	// set up preferences
+	initPreferences();
+
+	// shows the searchfield
+	document.getElementById('quicksearch').style.display = 'block';
+	document.getElementById('qs_field').onkeyup = quickSearch;
+}
+
+function loadTableData() {
+	// find table and appropriate rows
+	searchTable = document.getElementById('qs_table');
+	var allRows = searchTable.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+
+	// split all rows into entryRows and infoRows (e.g. abstract, review, bibtex)
+	entryRows = new Array(); infoRows = new Array(); absRows = new Array(); revRows = new Array();
+
+	// get data from each row
+	entryRowsData = new Array(); absRowsData = new Array(); revRowsData = new Array(); 
+	
+	BibTeXKeys = new Array();
+	
+	for (var i=0, k=0, j=0; i<allRows.length;i++) {
+		if (allRows[i].className.match(/entry/)) {
+			entryRows[j] = allRows[i];
+			entryRowsData[j] = stripDiacritics(getTextContent(allRows[i]));
+			allRows[i].id ? BibTeXKeys[j] = allRows[i].id : allRows[i].id = 'autokey_'+j;
+			j ++;
+		} else {
+			infoRows[k++] = allRows[i];
+			// check for abstract/review
+			if (allRows[i].className.match(/abstract/)) {
+				absRows.push(allRows[i]);
+				absRowsData[j-1] = stripDiacritics(getTextContent(allRows[i]));
+			} else if (allRows[i].className.match(/review/)) {
+				revRows.push(allRows[i]);
+				revRowsData[j-1] = stripDiacritics(getTextContent(allRows[i]));
+			}
+		}
+	}
+	//number of entries and rows
+	numEntries = entryRows.length;
+	numInfo = infoRows.length;
+	numAbs = absRows.length;
+	numRev = revRows.length;
+}
+
+function quickSearch(){
+	
+	tInput = qsfield;
+
+	if (tInput.value.length == 0) {
+		showAll();
+		setStatistics(-1);
+		qsfield.className = '';
+		return;
+	} else {
+		t = stripDiacritics(tInput.value);
+
+		if(!searchRegExp) { t = escapeRegExp(t); }
+			
+		// only search for valid RegExp
+		try {
+			textRegExp = new RegExp(t,"i");
+			closeAllInfo();
+			qsfield.className = '';
+		}
+			catch(err) {
+			prevSearch = tInput.value;
+			qsfield.className = 'invalidsearch';
+			return;
+		}
+	}
+	
+	// count number of hits
+	var hits = 0;
+
+	// start looping through all entry rows
+	for (var i = 0; cRow = entryRows[i]; i++){
+
+		// only show search the cells if it isn't already hidden OR if the search term is getting shorter, then search all
+		if(cRow.className.indexOf('noshow')==-1 || tInput.value.length <= prevSearch.length){
+			var found = false; 
+
+			if (entryRowsData[i].search(textRegExp) != -1 || BibTeXKeys[i].search(textRegExp) != -1){ 
+				found = true;
+			} else {
+				if(searchAbstract && absRowsData[i]!=undefined) {
+					if (absRowsData[i].search(textRegExp) != -1){ found=true; } 
+				}
+				if(searchReview && revRowsData[i]!=undefined) {
+					if (revRowsData[i].search(textRegExp) != -1){ found=true; } 
+				}
+			}
+			
+			if (found){
+				cRow.className = 'entry show';
+				hits++;
+			} else {
+				cRow.className = 'entry noshow';
+			}
+		}
+	}
+
+	// update statistics
+	setStatistics(hits)
+	
+	// set previous search value
+	prevSearch = tInput.value;
+}
+
+
+// Strip Diacritics from text
+// http://stackoverflow.com/questions/990904/javascript-remove-accents-in-strings
+
+// String containing replacement characters for stripping accents 
+var stripstring = 
+    'AAAAAAACEEEEIIII'+
+    'DNOOOOO.OUUUUY..'+
+    'aaaaaaaceeeeiiii'+
+    'dnooooo.ouuuuy.y'+
+    'AaAaAaCcCcCcCcDd'+
+    'DdEeEeEeEeEeGgGg'+
+    'GgGgHhHhIiIiIiIi'+
+    'IiIiJjKkkLlLlLlL'+
+    'lJlNnNnNnnNnOoOo'+
+    'OoOoRrRrRrSsSsSs'+
+    'SsTtTtTtUuUuUuUu'+
+    'UuUuWwYyYZzZzZz.';
+
+function stripDiacritics(str){
+
+    if(noSquiggles==false){
+        return str;
+    }
+
+    var answer='';
+    for(var i=0;i<str.length;i++){
+        var ch=str[i];
+        var chindex=ch.charCodeAt(0)-192;   // Index of character code in the strip string
+        if(chindex>=0 && chindex<stripstring.length){
+            // Character is within our table, so we can strip the accent...
+            var outch=stripstring.charAt(chindex);
+            // ...unless it was shown as a '.'
+            if(outch!='.')ch=outch;
+        }
+        answer+=ch;
+    }
+    return answer;
+}
+
+// http://stackoverflow.com/questions/3446170/escape-string-for-use-in-javascript-regex
+// NOTE: must escape every \ in the export code because of the JabRef Export...
+function escapeRegExp(str) {
+  return str.replace(/[-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+}
+
+function toggleInfo(articleid,info) {
+
+	var entry = document.getElementById(articleid);
+	var abs = document.getElementById('abs_'+articleid);
+	var rev = document.getElementById('rev_'+articleid);
+	var bib = document.getElementById('bib_'+articleid);
+	
+	if (abs && info == 'abstract') {
+		abs.className.indexOf('noshow') == -1?abs.className = 'abstract noshow':abs.className = 'abstract show';
+	} else if (rev && info == 'review') {
+		rev.className.indexOf('noshow') == -1?rev.className = 'review noshow':rev.className = 'review show';
+	} else if (bib && info == 'bibtex') {
+		bib.className.indexOf('noshow') == -1?bib.className = 'bibtex noshow':bib.className = 'bibtex show';
+	} else { 
+		return;
+	}
+
+	// check if one or the other is available
+	var revshow; var absshow; var bibshow;
+	(abs && abs.className.indexOf('noshow') == -1)? absshow = true: absshow = false;
+	(rev && rev.className.indexOf('noshow') == -1)? revshow = true: revshow = false;	
+	(bib && bib.className.indexOf('noshow') == -1)? bibshow = true: bibshow = false;
+	
+	// highlight original entry
+	if(entry) {
+		if (revshow || absshow || bibshow) {
+		entry.className = 'entry highlight show';
+		} else {
+		entry.className = 'entry show';
+		}
+	}
+	
+	// When there's a combination of abstract/review/bibtex showing, need to add class for correct styling
+	if(absshow) {
+		(revshow||bibshow)?abs.className = 'abstract nextshow':abs.className = 'abstract';
+	} 
+	if (revshow) {
+		bibshow?rev.className = 'review nextshow': rev.className = 'review';
+	}	
+	
+}
+
+function setStatistics (hits) {
+	if(hits < 0) { hits=numEntries; }
+	if(stats) { stats.firstChild.data = hits + '/' + numEntries}
+}
+
+function getTextContent(node) {
+	// Function written by Arve Bersvendsen
+	// http://www.virtuelvis.com
+	
+	if (node.nodeType == 3) {
+	return node.nodeValue;
+	} // text node
+	if (node.nodeType == 1 && node.className != "infolinks") { // element node
+	var text = [];
+	for (var chld = node.firstChild;chld;chld=chld.nextSibling) {
+		text.push(getTextContent(chld));
+	}
+	return text.join("");
+	} return ""; // some other node, won't contain text nodes.
+}
+
+function showAll(){
+	closeAllInfo();
+	for (var i = 0; i < numEntries; i++){ entryRows[i].className = 'entry show'; }
+}
+
+function closeAllInfo(){
+	for (var i=0; i < numInfo; i++){
+		if (infoRows[i].className.indexOf('noshow') ==-1) {
+			infoRows[i].className = infoRows[i].className + ' noshow';
+		}
+	}
+}
+
+function clearQS() {
+	qsfield.value = '';
+	showAll();
+}
+
+function redoQS(){
+	showAll();
+	quickSearch(qsfield);
+}
+
+function updateSetting(obj){
+	var option = obj.id;
+	var checked = obj.value;
+
+	switch(option)
+	 {
+	 case "opt_searchAbs":
+	   searchAbstract=!searchAbstract;
+	   redoQS();
+	   break;
+	 case "opt_searchRev":
+	   searchReview=!searchReview;
+	   redoQS();
+	   break;
+	 case "opt_useRegExp":
+	   searchRegExp=!searchRegExp;
+	   redoQS();
+	   break;
+	 case "opt_noAccents":
+	   noSquiggles=!noSquiggles;
+	   loadTableData();
+	   redoQS();
+	   break;
+	 }
+}
+
+function initPreferences(){
+	if(searchAbstract){document.getElementById("opt_searchAbs").checked = true;}
+	if(searchReview){document.getElementById("opt_searchRev").checked = true;}
+	if(noSquiggles){document.getElementById("opt_noAccents").checked = true;}
+	if(searchRegExp){document.getElementById("opt_useRegExp").checked = true;}
+	
+	if(numAbs==0) {document.getElementById("opt_searchAbs").parentNode.style.display = 'none';}
+	if(numRev==0) {document.getElementById("opt_searchRev").parentNode.style.display = 'none';}	
+}
+
+function toggleSettings(){
+	var togglebutton = document.getElementById('showsettings');
+	var settings = document.getElementById('settings');
+	
+	if(settings.className == "hidden"){
+		settings.className = "show";
+		togglebutton.innerText = "close settings";
+		togglebutton.textContent = "close settings";
+	}else{
+		settings.className = "hidden";
+		togglebutton.innerText = "settings...";		
+		togglebutton.textContent = "settings...";
+	}
+}
+
+-->
+</script>
 <style type="text/css">
-body { font-size: 12px; font-family: Arial, sans-serif; }
-dt { margin-top: 1em; font-weight: bold; }
+body { background-color: white; font-family: Arial, sans-serif; font-size: 13px; line-height: 1.2; padding: 1em; color: #2E2E2E; width: 50em; margin: auto auto; }
+
+form#quicksearch { width: auto; border-style: solid; border-color: gray; border-width: 1px 0px; padding: 0.7em 0.5em; display:none; position:relative; }
+span#searchstat {padding-left: 1em;}
+
+div#settings { margin-top:0.7em; /* border-bottom: 1px transparent solid; background-color: #efefef; border: 1px grey solid; */ }
+div#settings ul {margin: 0; padding: 0; }
+div#settings li {margin: 0; padding: 0 1em 0 0; display: inline; list-style: none; }
+div#settings li + li { border-left: 2px #efefef solid; padding-left: 0.5em;}
+div#settings input { margin-bottom: 0px;}
+
+div#settings.hidden {display:none;}
+
+#showsettings { border: 1px grey solid; padding: 0 0.5em; float:right; line-height: 1.6em; text-align: right; }
+#showsettings:hover { cursor: pointer; }
+
+.invalidsearch { background-color: red; }
+input[type="button"] { background-color: #efefef; border: 1px #2E2E2E solid;}
+
+table { border: 1px gray none; width: 100%; empty-cells: show; border-spacing: 0em 0.1em; margin: 1em 0em; }
+th, td { border: none; padding: 0.5em; vertical-align: top; text-align: justify; }
+
+td a { color: navy; text-decoration: none; }
+td a:hover  { text-decoration: underline; }
+
+tr.noshow { display: none;}
+tr.highlight td { background-color: #EFEFEF; border-top: 2px #2E2E2E solid; font-weight: bold; }
+tr.abstract td, tr.review td, tr.bibtex td { background-color: #EFEFEF; text-align: justify; border-bottom: 2px #2E2E2E solid; }
+tr.nextshow td { border-bottom-style: none; }
+
+tr.bibtex pre { width: 100%; overflow: auto; white-space: pre-wrap;}
+p.infolinks { margin: 0.3em 0em 0em 0em; padding: 0px; }
+
 @media print {
-	dt { page-break-after: avoid; }
-	dd { page-break-before: avoid; }
+	p.infolinks, #qs_settings, #quicksearch, t.bibtex { display: none !important; }
+	tr { page-break-inside: avoid; }
 }
 </style>
 </head>
 <body>
-<dl>
-<dt>article <a name="andersen_zero-anaphora_1987">(andersen_zero-anaphora_1987)</a></dt>
-<dd>Andersen, P. K.</dd>
-<dd><i>Zero-Anaphora and Related Phenomena in Classical Tibetan</i></dd>
-<dd>Studies in Language, <b>1987</b>, Vol. 11(2), pp. 279-312</dd>
 
-<dt>book <a name="chandler_thl_2004">(chandler_thl_2004)</a></dt>
-<dd>Chandler, D., Chapman, D., Chilton, R., Duff, T., Fynn, C., Grove, N. (c.-d., Germano, D.-d., Hartwell, S., Hauer, P. and West, A.</dd>
-<dd><i>THL Extended Wylie Transliteration Scheme</i></dd>
-<dd><b>2004</b></dd>
-
-<dt>inproceedings <a name="di_verbal_2005">(di_verbal_2005)</a></dt>
-<dd>Di, J., Congjun, L. and Zhang, J.</dd>
-<dd><i>The Verbal Entries and Their Description in a Grammatical Information-Dictionary of Contemporary Tibetan</i></dd>
-<dd>The 2nd International Joint Conference on Natural Language Processing</dd>
-<dd>Springer-Verlag Berlin Heidelberg, <b>2005</b>, pp. pp. 874-884</dd>
-
-<dt>inproceedings <a name="hackett_automatic_2000">(hackett_automatic_2000)</a></dt>
-<dd>Hackett, P. G.</dd>
-<dd><i>Automatic Segmentation and Part-Of-Speech Tagging For Tibetan: A First Step Towards Machine Translation</i></dd>
-<dd>International Association for Tibetan Studies</dd>
-<dd><b>2000</b>, Vol. 9</dd>
-
-<dt>inproceedings <a name="hill_contribution_2015">(hill_contribution_2015)</a></dt>
-<dd>Hill, N.</dd>
-<dd><i>The contribution of corpus linguistics to lexicography and the future of Tibetan dictionaries.</i></dd>
-<dd>Revue d'Etudes Tibétaines</dd>
-<dd>UMR 8155 (CRCAO), CNRS, <b>2015</b>, pp. pp. 51-86</dd>
-
-<dt>book <a name="hill_lexicon_2010">(hill_lexicon_2010)</a></dt>
-<dd>Hill, N. W.</dd>
-<dd><i>A Lexicon of Tibetan Verb Stems as Reported by the Grammatical Tradition</i></dd>
-<dd>Bayerische Akademie der Wissenschaften, <b>2010</b></dd>
-
-<dt>inproceedings <a name="lee_context-based_2013">(lee_context-based_2013)</a></dt>
-<dd>Lee, C.-M. and Huang, C.-K.</dd>
-<dd><i>Context-Based Chinese Word Segmentation using SVM Machine-Learning Algorithm without Dictionary Support</i></dd>
-<dd>Sixth International Joint Conference on Natural Language Processing, IJCNLP 2013, Nagoya, Japan, October 14-18, 2013</dd>
-<dd><b>2013</b>, pp. 614-622</dd>
-
-<dt>inproceedings <a name="liu_tibetan_2011">(liu_tibetan_2011)</a></dt>
-<dd>Liu, H., Nuo, M., Ma, L.-L., Wu, J. and He, Y.</dd>
-<dd><i>Tibetan Word Segmentation as Syllable Tagging Using Conditional Random Field</i></dd>
-<dd>Proceedings of the 25th Pacific Asia Conference on Language, Information and Computation, PACLIC 25, Singapore, December 16-18, 2011</dd>
-<dd><b>2011</b>, pp. 168-177</dd>
-
-<dt>book <a name="magee_fluent_1993">(magee_fluent_1993)</a></dt>
-<dd>Magee, W. A., Hopkins, J. and Napper, E.</dd>
-<dd><i>Fluent Tibetan: A Proficiency Oriented Learning System(Novice &amp; Intermediate Levels)</i></dd>
-<dd>Snow Lion Publications, <b>1993</b></dd>
-
-<dt>article <a name="miller_thon-mi_1963">(miller_thon-mi_1963)</a></dt>
-<dd>Miller, R. A.</dd>
-<dd><i>Thon-mi Sambhoṭa and His Grammatical Treatises</i></dd>
-<dd>Journal of the American Oriental Society, <b>1963</b>, Vol. 83(4), pp. 485-502</dd>
-
-<dt>book <a name="preston_how_2005">(preston_how_2005)</a></dt>
-<dd>Preston, C.</dd>
-<dd><i>How to Read Classical Tibetan, Volume One: Summary of the General Path</i></dd>
-<dd>Snow Lion, <b>2005</b></dd>
-
-<dt>book <a name="shabdrung_bod_????">(shabdrung_bod_????)</a></dt>
-<dd>Shabdrung, T.</dd>
-<dd><i>bod gangs can gyi sgra rip pa'i bstan bcos le tsan 'ga' phylogs bsdus</i></dd>
-<dd>mtsho sngon mi rigs dpe skrun khang, </dd>
-
-<dt>inproceedings <a name="tournadre__2014">(tournadre__2014)</a></dt>
-<dd>Tournadre, N.</dd>
-<dd>The 20th Himalayan languages Symposium</dd>
-<dd>Nanyang Technological University, <b>2014</b></dd>
-
-<dt>book <a name="tournadre_tibetic_2013">(tournadre_tibetic_2013)</a></dt>
-<dd>Tournadre, N.</dd>
-<dd><i>The Tibetic languages and their classification</i></dd>
-<dd><b>2013</b></dd>
-
-<dt>book <a name="tournadre_ergativite_1996">(tournadre_ergativite_1996)</a></dt>
-<dd>Tournadre, N.</dd>
-<dd><i>L'ergativite en tibetain. Approche morphosyntaxique de la langue parlee. (Bibliotheque de l'Information Grammaticale)</i></dd>
-<dd>Peeters Publishers, <b>1996</b></dd>
-
-<dt>inproceedings <a name="tournadre_propos_1988">(tournadre_propos_1988)</a></dt>
-<dd>Tournadre, N.</dd>
-<dd><i>A propos du sujet et de la morphologie nominale en tibétain (Vision traditionnelle et proposition d'outils descriptifs modernes)</i></dd>
-<dd>Bulletin de la Société de Linguistique de Paris</dd>
-<dd><b>1988</b>, Vol. 83, pp. pp. 277-292</dd>
-
-<dt>book <a name="tournadre_manual_2005">(tournadre_manual_2005)</a></dt>
-<dd>Tournadre, N. and Dorje, S.</dd>
-<dd><i>Manual Of Standard Tibetan: Language And Civilization</i></dd>
-<dd>Snow Lion, <b>2005</b></dd>
-
-<dt>book <a name="wilson_translating_1992">(wilson_translating_1992)</a></dt>
-<dd>Wilson, J. B.</dd>
-<dd><i>Translating Buddhism From Tibetan: An Introduction To The Tibetan Literary Language And The Translation Of Buddhist Texts From Tibetan</i></dd>
-<dd>Snow Lion, <b>1992</b></dd>
-
-<dt>book <a name="yisun_bod_1985">(yisun_bod_1985)</a></dt>
-<dd>Yisun, Z.</dd>
-<dd><i>Bod rgya tshig mdzod chen mo / 藏漢大詞典 Zang Han Da Cidian</i></dd>
-<dd>Mi rigs dpe skrun kaṅ / Minzu Chubanshe, <b>1985</b></dd>
-
-</dl>
+<form action="" id="quicksearch">
+<input type="text" id="qs_field" autocomplete="off" placeholder="Type to search..." /> <input type="button" onclick="clearQS()" value="clear" />
+<span id="searchstat">Matching entries: <span id="stat">0</span></span>
+<div id="showsettings" onclick="toggleSettings()">settings...</div>
+<div id="settings" class="hidden">
+<ul>
+<li><input type="checkbox" class="search_setting" id="opt_searchAbs" onchange="updateSetting(this)"><label for="opt_searchAbs"> include abstract</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_searchRev" onchange="updateSetting(this)"><label for="opt_searchRev"> include review</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_useRegExp" onchange="updateSetting(this)"><label for="opt_useRegExp"> use RegExp</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_noAccents" onchange="updateSetting(this)"><label for="opt_noAccents"> ignore accents</label></li>
+</ul>
+</div>
+</form>
+<table id="qs_table" border="1">
+<tbody>
+<tr id="andersen_zero-anaphora_1987" class="entry">
+	<td>Andersen PK (1987), <i>"Zero-Anaphora and Related Phenomena in Classical Tibetan"</i>, Studies in Language.  Vol. 11(2), pp. 279-312.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('andersen_zero-anaphora_1987','bibtex')">BibTeX</a>] [<a href="http://dx.doi.org/10.1075/sl.11.2.02and" target="_blank">DOI</a>] [<a href="http://dx.doi.org/10.1075/sl.11.2.02and" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_andersen_zero-anaphora_1987" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{andersen_zero-anaphora_1987,
+  author = {Andersen, Paul Kent},
+  title = {Zero-Anaphora and Related Phenomena in Classical Tibetan},
+  journal = {Studies in Language},
+  year = {1987},
+  volume = {11},
+  number = {2},
+  pages = {279--312},
+  url = {http://dx.doi.org/10.1075/sl.11.2.02and},
+  doi = {10.1075/sl.11.2.02and}
+}
+</pre></td>
+</tr>
+<tr id="chandler_thl_2004" class="entry">
+	<td>Chandler D, Chapman D, Chilton R, Duff T, Fynn C, Grove N(c-d, Germano D-d, Hartwell S, Hauer P and West A (2004), <i>"THL Extended Wylie Transliteration Scheme"</i> 
+	<p class="infolinks"> [<a href="javascript:toggleInfo('chandler_thl_2004','bibtex')">BibTeX</a>] [<a href="http://www.thlib.org/reference/transliteration/#!essay=/thl/ewts/all/" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_chandler_thl_2004" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{chandler_thl_2004,
+  author = {Chandler, David and Chapman, David and Chilton, Robert and Duff, Tony and Fynn, Chris and Grove, Nathaniel (co-director) and Germano, David(co-director) and Hartwell, Steve and Hauer, Peter and West, Andrew},
+  title = {THL Extended Wylie Transliteration Scheme},
+  year = {2004},
+  url = {http://www.thlib.org/reference/transliteration/#!essay=/thl/ewts/all/}
+}
+</pre></td>
+</tr>
+<tr id="di_verbal_2005" class="entry">
+	<td>Di J, Congjun L and Zhang J (2005), <i>"The Verbal Entries and Their Description in a Grammatical Information-Dictionary of Contemporary Tibetan"</i>, In The 2nd International Joint Conference on Natural Language Processing. , pp. pp. 874-884. Springer-Verlag Berlin Heidelberg.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('di_verbal_2005','bibtex')">BibTeX</a>] [<a href="http://www.aclweb.org/anthology/I05-1076" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_di_verbal_2005" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@inproceedings{di_verbal_2005,
+  author = {Di, Jiang and Congjun, Long and Zhang, Jichuan},
+  title = {The Verbal Entries and Their Description in a Grammatical Information-Dictionary of Contemporary Tibetan},
+  booktitle = {The 2nd International Joint Conference on Natural Language Processing},
+  publisher = {Springer-Verlag Berlin Heidelberg},
+  year = {2005},
+  pages = {pp. 874--884},
+  url = {http://www.aclweb.org/anthology/I05-1076}
+}
+</pre></td>
+</tr>
+<tr id="hackett_automatic_2000" class="entry">
+	<td>Hackett PG (2000), <i>"Automatic Segmentation and Part-Of-Speech Tagging For Tibetan: A First Step Towards Machine Translation"</i>, In International Association for Tibetan Studies. Leiden, The Netherlands, June, 2000.  Vol. 9
+	<p class="infolinks"> [<a href="javascript:toggleInfo('hackett_automatic_2000','bibtex')">BibTeX</a>] [<a href="http://www.tibet.columbia.edu/iats/it/IATS-IX_Hackett_paper.pdf" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_hackett_automatic_2000" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@inproceedings{hackett_automatic_2000,
+  author = {Hackett, Paul G.},
+  title = {Automatic Segmentation and Part-Of-Speech Tagging For Tibetan: A First Step Towards Machine Translation},
+  booktitle = {International Association for Tibetan Studies},
+  year = {2000},
+  volume = {9},
+  url = {http://www.tibet.columbia.edu/iats/it/IATS-IX_Hackett_paper.pdf}
+}
+</pre></td>
+</tr>
+<tr id="hill_contribution_2015" class="entry">
+	<td>Hill N (2015), <i>"The contribution of corpus linguistics to lexicography and the future of Tibetan dictionaries."</i>, In Revue d'Etudes Tibétaines. , pp. pp. 51-86. UMR 8155 (CRCAO), CNRS.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('hill_contribution_2015','bibtex')">BibTeX</a>] [<a href="http://eprints.soas.ac.uk/19777/1/Hill%202015%20Garrett%20et%20al%20tib%20dict.pdf" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_hill_contribution_2015" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@inproceedings{hill_contribution_2015,
+  author = {Hill, Nathan},
+  title = {The contribution of corpus linguistics to lexicography and the future of Tibetan dictionaries.},
+  booktitle = {Revue d'Etudes Tibétaines},
+  publisher = {UMR 8155 (CRCAO), CNRS},
+  year = {2015},
+  pages = {pp. 51--86},
+  url = {http://eprints.soas.ac.uk/19777/1/Hill%202015%20Garrett%20et%20al%20tib%20dict.pdf}
+}
+</pre></td>
+</tr>
+<tr id="hill_lexicon_2010" class="entry">
+	<td>Hill NW (2010), <i>"A Lexicon of Tibetan Verb Stems as Reported by the Grammatical Tradition"</i> Munich  Bayerische Akademie der Wissenschaften.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('hill_lexicon_2010','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_hill_lexicon_2010" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{hill_lexicon_2010,
+  author = {Hill, Nathan W.},
+  title = {A Lexicon of Tibetan Verb Stems as Reported by the Grammatical Tradition},
+  publisher = {Bayerische Akademie der Wissenschaften},
+  year = {2010}
+}
+</pre></td>
+</tr>
+<tr id="lee_context-based_2013" class="entry">
+	<td>Lee C-M and Huang C-K (2013), <i>"Context-Based Chinese Word Segmentation using SVM Machine-Learning Algorithm without Dictionary Support"</i>, In Sixth International Joint Conference on Natural Language Processing, IJCNLP 2013, Nagoya, Japan, October 14-18, 2013. , pp. 614-622.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('lee_context-based_2013','bibtex')">BibTeX</a>] [<a href="http://aclweb.org/anthology/I/I13/I13-1070.pdf" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_lee_context-based_2013" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@inproceedings{lee_context-based_2013,
+  author = {Lee, Chia-Ming and Huang, Chien-Kang},
+  title = {Context-Based Chinese Word Segmentation using SVM Machine-Learning Algorithm without Dictionary Support},
+  booktitle = {Sixth International Joint Conference on Natural Language Processing, IJCNLP 2013, Nagoya, Japan, October 14-18, 2013},
+  year = {2013},
+  pages = {614--622},
+  url = {http://aclweb.org/anthology/I/I13/I13-1070.pdf}
+}
+</pre></td>
+</tr>
+<tr id="liu_tibetan_2011" class="entry">
+	<td>Liu H, Nuo M, Ma L-L, Wu J and He Y (2011), <i>"Tibetan Word Segmentation as Syllable Tagging Using Conditional Random Field"</i>, In Proceedings of the 25th Pacific Asia Conference on Language, Information and Computation, PACLIC 25, Singapore, December 16-18, 2011. , pp. 168-177.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('liu_tibetan_2011','bibtex')">BibTeX</a>] [<a href="http://www.aclweb.org/anthology/Y11-1018" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_liu_tibetan_2011" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@inproceedings{liu_tibetan_2011,
+  author = {Liu, Huidan and Nuo, Minghua and Ma, Long-Long and Wu, Jian and He, Yeping},
+  title = {Tibetan Word Segmentation as Syllable Tagging Using Conditional Random Field},
+  booktitle = {Proceedings of the 25th Pacific Asia Conference on Language, Information and Computation, PACLIC 25, Singapore, December 16-18, 2011},
+  year = {2011},
+  pages = {168--177},
+  url = {http://www.aclweb.org/anthology/Y11-1018}
+}
+</pre></td>
+</tr>
+<tr id="magee_fluent_1993" class="entry">
+	<td>Magee WA, Hopkins J and Napper E (1993), <i>"Fluent Tibetan: A Proficiency Oriented Learning System(Novice &amp; Intermediate Levels)"</i> Ithaca, N.Y  Snow Lion Publications.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('magee_fluent_1993','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_magee_fluent_1993" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{magee_fluent_1993,
+  author = {Magee, William A. and Hopkins, Jeffrey. and Napper, Elizabeth.},
+  title = {Fluent Tibetan: A Proficiency Oriented Learning System(Novice &amp; Intermediate Levels)},
+  publisher = {Snow Lion Publications},
+  year = {1993},
+  edition = {Package edition}
+}
+</pre></td>
+</tr>
+<tr id="miller_thon-mi_1963" class="entry">
+	<td>Miller RA (1963), <i>"Thon-mi Sambhoṭa and His Grammatical Treatises"</i>, Journal of the American Oriental Society., September, 1963.  Vol. 83(4), pp. 485-502.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('miller_thon-mi_1963','bibtex')">BibTeX</a>] [<a href="http://dx.doi.org/10.2307/597167" target="_blank">DOI</a>] [<a href="http://www.jstor.org/stable/597167" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_miller_thon-mi_1963" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{miller_thon-mi_1963,
+  author = {Miller, Roy Andrew},
+  title = {Thon-mi Sambhoṭa and His Grammatical Treatises},
+  journal = {Journal of the American Oriental Society},
+  year = {1963},
+  volume = {83},
+  number = {4},
+  pages = {485--502},
+  url = {http://www.jstor.org/stable/597167},
+  doi = {10.2307/597167}
+}
+</pre></td>
+</tr>
+<tr id="preston_how_2005" class="entry">
+	<td>Preston C (2005), <i>"How to Read Classical Tibetan, Volume One: Summary of the General Path"</i> Ithaca, N.Y, June, 2005.  Snow Lion.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('preston_how_2005','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_preston_how_2005" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{preston_how_2005,
+  author = {Preston, Craig},
+  title = {How to Read Classical Tibetan, Volume One: Summary of the General Path},
+  publisher = {Snow Lion},
+  year = {2005},
+  edition = {First Edition}
+}
+</pre></td>
+</tr>
+<tr id="shabdrung_bod_????" class="entry">
+	<td>Shabdrung T (), <i>"bod gangs can gyi sgra rip pa'i bstan bcos le tsan 'ga' phylogs bsdus"</i>  mtsho sngon mi rigs dpe skrun khang.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('shabdrung_bod_????','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_shabdrung_bod_????" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{shabdrung_bod_????,
+  author = {Shabdrung, Tsetan},
+  title = {bod gangs can gyi sgra rip pa'i bstan bcos le tsan 'ga' phylogs bsdus},
+  publisher = {mtsho sngon mi rigs dpe skrun khang},
+  note = {The page where the details are was missing in the book I have}
+}
+</pre></td>
+</tr>
+<tr id="tournadre__2014" class="entry">
+	<td>Tournadre N (2014), <i>""</i>, In The 20th Himalayan languages Symposium. Arguments against `Subject' and `Direct Object' as viable concepts in Tibetan: revisiting the syntactic categories suitable for Classical Tibetan as well as the modern Tibetic languages., July, 2014.  Nanyang Technological University.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('tournadre__2014','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_tournadre__2014" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@inproceedings{tournadre__2014,
+  author = {Tournadre, Nicolas},
+  booktitle = {The 20th Himalayan languages Symposium},
+  publisher = {Nanyang Technological University},
+  year = {2014}
+}
+</pre></td>
+</tr>
+<tr id="tournadre_tibetic_2013" class="entry">
+	<td>Tournadre N (2013), <i>"The Tibetic languages and their classification"</i> 
+	<p class="infolinks">[<a href="javascript:toggleInfo('tournadre_tibetic_2013','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('tournadre_tibetic_2013','bibtex')">BibTeX</a>] [<a href="http://www.nicolas-tournadre.net/wp-content/uploads/2015/06/2014-TheTibeticlanguages.pdf" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_tournadre_tibetic_2013" class="abstract noshow">
+	<td><b>Abstract</b>: Preprint version, Trans-Himalayan Linguistics, De Gruyter, 2013</td>
+</tr>
+<tr id="bib_tournadre_tibetic_2013" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{tournadre_tibetic_2013,
+  author = {Tournadre, Nicolas},
+  title = {The Tibetic languages and their classification},
+  year = {2013},
+  url = {http://www.nicolas-tournadre.net/wp-content/uploads/2015/06/2014-TheTibeticlanguages.pdf}
+}
+</pre></td>
+</tr>
+<tr id="tournadre_ergativite_1996" class="entry">
+	<td>Tournadre N (1996), <i>"L'ergativite en tibetain. Approche morphosyntaxique de la langue parlee. (Bibliotheque de l'Information Grammaticale)"</i>  Peeters Publishers.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('tournadre_ergativite_1996','bibtex')">BibTeX</a>] [<a href="http://www.amazon.com/Lergativite-morphosyntaxique-Bibliotheque-lInformation-Grammaticale/dp/9068318268%3FSubscriptionId%3D0JYN1NVW651KCA56C102%26tag%3Dtechkie-20%26linkCode%3Dxm2%26camp%3D2025%26creative%3D165953%26creativeASIN%3D9068318268" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_tournadre_ergativite_1996" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{tournadre_ergativite_1996,
+  author = {Tournadre, Nicolas},
+  title = {L'ergativite en tibetain. Approche morphosyntaxique de la langue parlee. (Bibliotheque de l'Information Grammaticale)},
+  publisher = {Peeters Publishers},
+  year = {1996},
+  url = {http://www.amazon.com/Lergativite-morphosyntaxique-Bibliotheque-lInformation-Grammaticale/dp/9068318268%3FSubscriptionId%3D0JYN1NVW651KCA56C102%26tag%3Dtechkie-20%26linkCode%3Dxm2%26camp%3D2025%26creative%3D165953%26creativeASIN%3D9068318268}
+}
+</pre></td>
+</tr>
+<tr id="tournadre_propos_1988" class="entry">
+	<td>Tournadre N (1988), <i>"A propos du sujet et de la morphologie nominale en tibétain (Vision traditionnelle et proposition d'outils descriptifs modernes)"</i>, In Bulletin de la Société de Linguistique de Paris.  Vol. 83, pp. pp. 277-292.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('tournadre_propos_1988','bibtex')">BibTeX</a>] [<a href="http://www.nicolas-tournadre.net/wp-content/uploads/2015/06/1988-morphologie.pdf" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_tournadre_propos_1988" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@inproceedings{tournadre_propos_1988,
+  author = {Tournadre, Nicolas},
+  title = {A propos du sujet et de la morphologie nominale en tibétain (Vision traditionnelle et proposition d'outils descriptifs modernes)},
+  booktitle = {Bulletin de la Société de Linguistique de Paris},
+  year = {1988},
+  volume = {83},
+  pages = {pp. 277--292},
+  url = {http://www.nicolas-tournadre.net/wp-content/uploads/2015/06/1988-morphologie.pdf}
+}
+</pre></td>
+</tr>
+<tr id="tournadre_manual_2005" class="entry">
+	<td>Tournadre N and Dorje S (2005), <i>"Manual Of Standard Tibetan: Language And Civilization"</i>  Snow Lion.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('tournadre_manual_2005','bibtex')">BibTeX</a>] [<a href="http://www.amazon.com/Manual-Of-Standard-Tibetan-Civilization/dp/1559391898%3FSubscriptionId%3D0JYN1NVW651KCA56C102%26tag%3Dtechkie-20%26linkCode%3Dxm2%26camp%3D2025%26creative%3D165953%26creativeASIN%3D1559391898" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_tournadre_manual_2005" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{tournadre_manual_2005,
+  author = {Tournadre, Nicolas and Dorje, Sangda},
+  title = {Manual Of Standard Tibetan: Language And Civilization},
+  publisher = {Snow Lion},
+  year = {2005},
+  url = {http://www.amazon.com/Manual-Of-Standard-Tibetan-Civilization/dp/1559391898%3FSubscriptionId%3D0JYN1NVW651KCA56C102%26tag%3Dtechkie-20%26linkCode%3Dxm2%26camp%3D2025%26creative%3D165953%26creativeASIN%3D1559391898}
+}
+</pre></td>
+</tr>
+<tr id="wilson_translating_1992" class="entry">
+	<td>Wilson JB (1992), <i>"Translating Buddhism From Tibetan: An Introduction To The Tibetan Literary Language And The Translation Of Buddhist Texts From Tibetan"</i> Ithaca, N.Y., USA, January, 1992.  Snow Lion.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('wilson_translating_1992','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_wilson_translating_1992" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{wilson_translating_1992,
+  author = {Wilson, Joe B.},
+  title = {Translating Buddhism From Tibetan: An Introduction To The Tibetan Literary Language And The Translation Of Buddhist Texts From Tibetan},
+  publisher = {Snow Lion},
+  year = {1992},
+  edition = {First Edition edition}
+}
+</pre></td>
+</tr>
+<tr id="yisun_bod_1985" class="entry">
+	<td>Yisun Z (1985), <i>"Bod rgya tshig mdzod chen mo / 藏漢大詞典 Zang Han Da Cidian"</i>  Mi rigs dpe skrun kaṅ / Minzu Chubanshe.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('yisun_bod_1985','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_yisun_bod_1985" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{yisun_bod_1985,
+  author = {Yisun, Zhang},
+  title = {Bod rgya tshig mdzod chen mo / 藏漢大詞典 Zang Han Da Cidian},
+  publisher = {Mi rigs dpe skrun kaṅ / Minzu Chubanshe},
+  year = {1985}
+}
+</pre></td>
+</tr>
+</tbody>
+</table>
+<footer>
+ <small>Created by <a href="http://jabref.sourceforge.net">JabRef</a> on 12/09/2015.</small>
+</footer>
+<!-- file generated by JabRef -->
 </body>
 </html>
