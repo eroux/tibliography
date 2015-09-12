@@ -10,6 +10,6 @@ To compile the html file, open the bib file with [JabRef](http://jabref.sourcefo
 
 To cite a reference in markdown, use the following example:
 
-    [eroux.github.io/tibliography/#tournadre_tibetic_2013](*Tournadre, 2012*)
+    [\[*Tournadre, 2012*\]](http://eroux.github.io/tibliography/#tournadre_tibetic_2013)
 
-result: [eroux.github.io/tibliography/#tournadre_tibetic_2013](*Tournadre, 2012*)
+result: [*\[Tournadre, 2012\]*](http://eroux.github.io/tibliography/#tournadre_tibetic_2013)
